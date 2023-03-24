@@ -4,10 +4,11 @@
 // storage mechanism, or via the captive-portal setup process.
 //
 
-#define BUILD_NUMBER 4
+#define BUILD_NUMBER 27
 
 #define FIRMWARE_VERSION "0.1"
 
+#define DEBUG_LEVEL 1
 #define DEBUG_SYSLOG 1
 #define DEBUG_FILES true
 #define DEBUG_COLOR true
