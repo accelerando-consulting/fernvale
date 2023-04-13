@@ -4,11 +4,12 @@
 // storage mechanism, or via the captive-portal setup process.
 //
 
-#define BUILD_NUMBER 27
+#define BUILD_NUMBER 37
 
 #define FIRMWARE_VERSION "0.1"
 
 #define DEBUG_LEVEL 1
+#define MAX_DEBUG_LEVEL 3
 #define DEBUG_SYSLOG 1
 #define DEBUG_FILES true
 #define DEBUG_COLOR true
@@ -18,6 +19,8 @@
 #define USE_TFT 1
 #define USE_WDT 1
 #define USE_TELNETD 1
+#define APP_USE_WIFI true
+#define APP_USE_LTE false
 
 #define NETWORK_RECONNECT_SECONDS 60
 #define PUBSUB_RECONNECT_SECONDS 90
@@ -32,10 +35,12 @@
 #define IP_WIFI_USE_AP false
 #define IP_WIFI_AP_0_SSID "Provision"
 #define IP_WIFI_AP_0_PASS "Provision"
+#define IP_WIFI_AP_1_SSID "Accelerando"
+#define IP_WIFI_AP_1_PASS "sailboat-rabbit-banana"
 #define IP_ENABLE_OTA 1
 
 #define OTA_PASSWORD "changeme"
-#define UPDATE_URL "http://firmware.accelerando.io/fernavle/fernvale.bin"
+#define UPDATE_URL "http://firmware.accelerando.io/fernvale/fernvale.bin"
 
 #define TIMEZONE_HOURS 10
 #define TIMEZONE_MINUTES 0
