@@ -9,8 +9,12 @@
 #include "stacx/leaf_shell.h"
 #include "stacx/leaf_ip_esp.h"
 #include "stacx/leaf_pubsub_mqtt_esp.h"
+#include "stacx/leaf_ip_null.h"
+#include "stacx/leaf_ina219.h"
+#include "stacx/leaf_pubsub_null.h"
 #include "stacx/leaf_wire.h"
 #include "stacx/leaf_button.h"
+#include "stacx/leaf_joyofclicks.h"
 //#include "stacx/leaf_tft.h"
 #include "libraries/lv_conf.h"
 #include "stacx/leaf_lvgl.h"
@@ -29,22 +33,26 @@ Leaf *leaves[] = {
 	new ShellLeaf("shell", "Fernvale", shell_prompt),
 
 	// Wifi comms 
-	new IpEspLeaf("wifi", "fs"),
+	new IpEspLeaf("wifi"),
+
 	new PubsubEspAsyncMQTTLeaf(
 	  "wifimqtt","wifi,fs",
 	  PUBSUB_SSL_DISABLE,
-	  PUBSUB_DEVICE_TOPIC_DISABLE),
+	  PUBSUB_DEVICE_TOPIC_DISABLE
+	  ),
 
 	new WireBusLeaf("wire", /*sda=*/21, /*scl=*/22),
 	//new SDCardLeaf("sd", &SD, /*ss=*/13, /*sck=*/14, /*mosi=*/15, /*miso=*/12),
 	(new BatteryLevelLeaf("battlvl",   LEAF_PIN(34),100000,100000,12,3))->setMute(),
 	new ToneLeaf("speaker",          LEAF_PIN(27), 2500, 1000, false),
+	(new INA219Leaf("current",NO_TAPS,0,100,1000))->setMute(),
 
 	(new ButtonLeaf("btn1", LEAF_PIN(38), LOW, false))->setMute(),
 	(new ButtonLeaf("btn2", LEAF_PIN(37), LOW, false))->setMute(),
 	(new ButtonLeaf("btn3", LEAF_PIN(39), LOW, false))->setMute(),
+	(new JoyOfClicksLeaf("joc", 0x20))->setMute(),
 	new LVGLLeaf("screen", 3),
-	new FernvaleAppLeaf("app", "fs,screen,wifi,wifimqtt,btn1,btn2,btn3,battlvl"),
+	new FernvaleAppLeaf("app", "fs,screen,wifi,wifimqtt,btn1,btn2,btn3,battlvl,joc,current"),
 	//new SDCardLeaf("sdcard"),
 	NULL
 };
