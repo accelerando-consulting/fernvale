@@ -30,6 +30,84 @@ void shell_prompt(char *buf, uint8_t len)
   pos+= snprintf(buf+pos, len-pos, "> ");
 }
 
+enum fernvale_button {
+  NONE,
+  BUT_1,
+  BUT_2,
+  BUT_3,
+  DOWN,
+  CENTER,
+  RIGHT,
+  LEFT,
+  UP,
+  BUT_C,
+  BUT_B,
+  BUT_A
+};
+#define BUT_COUNT ((int)BUT_A)
+
+const char *fernvale_button_names[] = {
+  "NONE",
+  "BUT_1",
+  "BUT_2",
+  "BUT_3",
+  "DOWN",
+  "CENTER",
+  "RIGHT",
+  "LEFT",
+  "UP",
+  "BUT_C",
+  "BUT_B",
+  "BUT_A" };
+
+enum fernvale_button fernvale_last_button;
+bool fernvale_last_button_is_press=false;
+
+#define PRESS(e) (e?"PRESS":"RELEASE")
+
+void fernvaleKeypadRead(lv_indev_drv_t *indev, lv_indev_data_t *data) {
+
+  data->state = fernvale_last_button_is_press?LV_INDEV_STATE_PRESSED:LV_INDEV_STATE_RELEASED;
+  if (fernvale_last_button==NONE) {
+    return;
+  }
+
+  NOTICE("Pass key %s %s to LVGL", fernvale_button_names[fernvale_last_button], PRESS(fernvale_last_button_is_press));
+  switch (fernvale_last_button) {
+  case BUT_1:
+  case BUT_2:
+  case BUT_3:
+    break;
+  case UP:
+    data->key==LV_KEY_UP;
+    break;
+  case DOWN:
+    data->key==LV_KEY_UP;
+    break;
+  case LEFT:
+    data->key==LV_KEY_LEFT;
+    break;
+  case RIGHT:
+    data->key==LV_KEY_RIGHT;
+    break;
+  case CENTER:
+    data->key==LV_KEY_ENTER;
+    break;
+  case BUT_A:
+    data->key==LV_KEY_PREV;
+    break;
+  case BUT_B:
+    data->key==LV_KEY_ESC;
+    break;
+  case BUT_C:
+    data->key==LV_KEY_NEXT;
+    break;
+  }
+  fernvale_last_button = NONE;
+}
+
+
+
 
 class FernvaleAppLeaf : public AbstractAppLeaf
 {
@@ -40,10 +118,16 @@ protected: // configuration preferences, see setup() for defaults.
   int report_min_sec;
   int report_count_interval;
   int battery_millivolts = -1;
+  float millivolts = nan("novolts");
+  float milliamps = nan("noamps");
   int refresh_msec = 200;
   int counter_pin = 27;
   int pwm_pin = 13;
-  int pwm_freq = 3000;
+  int pwm_freq = 2500;
+
+  int battery_threshold = 10;
+  int millivolts_threshold = 1;
+  int milliamps_threshold = 1;
 
   static const uint32_t color_none   = 0x000000; // black
   static const uint32_t color_off    = 0x400000; // red
@@ -62,10 +146,11 @@ protected: // ephemeral state
   unsigned long last_report_count = 0;
   unsigned long update_limit_msec = 500;
   bool mode_hz = true; // hz or ppm
-  bool counter_run = true;
-  bool pwm_run = true;
+  bool counter_run = false;
+  bool pwm_run = false;
   unsigned long last_interval_time = 0;
   unsigned long last_interval_count = 0;
+  
 
 #if USE_TFT
   TFTLeaf *screen;
@@ -88,7 +173,7 @@ public:
   virtual void start(void);
   virtual void loop(void);
   virtual void refresh(void);
-  void button(int b);
+  void button(enum fernvale_button b, bool is_press=true);
   virtual bool wants_topic(String type, String name, String topic);
   virtual bool mqtt_receive(String type, String name, String topic, String payload, bool direct=false);
   virtual bool commandHandler(String type, String name, String topic, String payload);
@@ -96,26 +181,32 @@ public:
 #ifdef USE_TFT
 protected: // LVGL screen resources
 
-  lv_obj_t *screen_home;
+  lv_indev_drv_t keypad_indev_drv;
+  lv_indev_t *keypad=NULL;
+  
   lv_style_t style_clock;
   lv_style_t style_count;
   lv_style_t style_freq;
   lv_style_t style_btn;
 
-  lv_obj_t *home_clock;
-  lv_obj_t *home_host;
-  lv_obj_t *home_vers;
-  lv_obj_t *home_ip;
-  lv_obj_t *home_batt;
+  lv_obj_t *screen_home = NULL;
+  lv_obj_t *home_clock = NULL;
+  lv_obj_t *home_host = NULL;
+  lv_obj_t *home_vers = NULL;
+  lv_obj_t *home_ip = NULL;
+  lv_obj_t *home_comms = NULL;
+  lv_obj_t *home_batt = NULL;
 
-  lv_obj_t *home_count;
-  lv_obj_t *home_countfreq;
-  lv_obj_t *home_pwmfreq;
+  lv_obj_t *home_count = NULL;
+  lv_obj_t *home_countfreq = NULL;
+  lv_obj_t *home_pwmfreq = NULL;
+  lv_obj_t *home_millivolts = NULL;
+  lv_obj_t *home_milliamps = NULL;
 
-  lv_obj_t *home_btn1;
-  lv_obj_t *home_btn2;
-  lv_obj_t *home_btn3;
-  lv_obj_t *home_btn4;
+  lv_obj_t *home_btn1 = NULL;
+  lv_obj_t *home_btn2 = NULL;
+  lv_obj_t *home_btn3 = NULL;
+  lv_obj_t *home_btn4 = NULL;
 
 #endif
 };
@@ -131,6 +222,8 @@ void FernvaleAppLeaf::setup(void) {
 #endif
 
   registerLeafIntValue("counter_pin", &pwm_pin);
+  registerLeafBoolValue("counter_run", &counter_run);
+  registerLeafBoolValue("pwm_run", &pwm_run);
   registerLeafIntValue("pwm_pin", &pwm_pin);
   registerLeafIntValue("pwm_freq", &pwm_freq);
   
@@ -150,8 +243,16 @@ void FernvaleAppLeaf::start()
 
 #if USE_TFT
   if (screen) {
+
+    lv_indev_drv_init(&keypad_indev_drv);
+    keypad_indev_drv.type = LV_INDEV_TYPE_KEYPAD;
+    keypad_indev_drv.read_cb = &fernvaleKeypadRead;
+    keypad = lv_indev_drv_register(&keypad_indev_drv);
+    
+    
     LEAF_NOTICE("Setup home screen");
     screen_home = lv_obj_create(NULL);
+
 
     lv_style_init(&style_clock);
     lv_style_set_text_font(&style_clock, &lv_font_montserrat_32);
@@ -169,18 +270,22 @@ void FernvaleAppLeaf::start()
     home_clock = lv_label_create(screen_home);
     lv_obj_add_style(home_clock, &style_clock, 0);
     lv_label_set_text(home_clock, "");
-    lv_obj_align(home_clock, LV_ALIGN_TOP_MID, 5, 0);
+    lv_obj_align(home_clock, LV_ALIGN_TOP_MID, 5, 20);
 
     home_host = lv_label_create(screen_home);
     lv_label_set_text(home_host, device_id);
-    lv_obj_align(home_host, LV_ALIGN_BOTTOM_LEFT, 5, -5);
+    lv_obj_align(home_host, LV_ALIGN_TOP_LEFT, 5, 5);
 
     home_vers = lv_label_create(screen_home);
     lv_label_set_text_fmt(home_vers, "v%s b%d", FIRMWARE_VERSION, BUILD_NUMBER);
     lv_obj_align(home_vers, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
 
+    home_comms = lv_label_create(screen_home);
+    lv_label_set_text(home_comms, "OFFLINE");
+    lv_obj_align(home_comms, LV_ALIGN_BOTTOM_LEFT, 5, -5);
+
     home_ip = lv_label_create(screen_home);
-    lv_label_set_text(home_ip, "OFFLINE");
+    lv_label_set_text(home_ip, "");
     lv_obj_align(home_ip, LV_ALIGN_BOTTOM_MID, 20, -5);
 
     home_batt = lv_label_create(screen_home);
@@ -190,7 +295,12 @@ void FernvaleAppLeaf::start()
     home_count = lv_label_create(screen_home);
     lv_obj_align(home_count, LV_ALIGN_TOP_LEFT, 55, 77);
     lv_obj_add_style(home_count, &style_count, 0);
-    lv_label_set_text(home_count, "");
+    if (counter_run) {
+      lv_label_set_text(home_count, "");
+    }
+    else {
+      lv_label_set_text(home_count, "OFF");
+    }
 
     home_countfreq = lv_label_create(screen_home);
     lv_obj_align(home_countfreq, LV_ALIGN_TOP_RIGHT, -10, 77);
@@ -204,8 +314,18 @@ void FernvaleAppLeaf::start()
       lv_label_set_text_fmt(home_pwmfreq, "%dHz", pwm_freq);
     }
     else {
-      lv_label_set_text(home_pwmfreq, "");
+        lv_label_set_text_fmt(home_pwmfreq, "OFF  (%dHz)", pwm_freq);
     }
+
+    home_millivolts = lv_label_create(screen_home);
+    lv_obj_align(home_millivolts, LV_ALIGN_TOP_LEFT, 55, 180);
+    lv_obj_add_style(home_millivolts, &style_freq, 0);
+    lv_label_set_text(home_millivolts, "");
+
+    home_milliamps = lv_label_create(screen_home);
+    lv_obj_align(home_milliamps, LV_ALIGN_TOP_RIGHT, -10, 180);
+    lv_obj_add_style(home_milliamps, &style_freq, 0);
+    lv_label_set_text(home_milliamps, "");
 
     home_btn1 = lv_label_create(screen_home);
     lv_obj_add_style(home_btn1, &style_btn, 0);
@@ -276,94 +396,126 @@ bool FernvaleAppLeaf::commandHandler(String type, String name, String topic, Str
 
 void FernvaleAppLeaf::refresh(void)
 {
-  char buf[32];
+  char buf[64];
+  time_t now;
   struct tm timeinfo;
+  
+  time(&now);
+  localtime_r(&now, &timeinfo);
+  strftime(buf, sizeof(buf), "%X", &timeinfo);
+  lv_label_set_text(home_clock, buf);
 
-  if (getLocalTime(&timeinfo)) {
-    strftime(buf, sizeof(buf), "%T", &timeinfo);
-    lv_label_set_text(home_clock, buf);
-  }
   if (battery_millivolts >= 0) {
     snprintf(buf, sizeof(buf), "%.2fV", battery_millivolts/1000.0);
     lv_label_set_text(home_batt, buf);
   }
 
-  if (!counter_run && !pwm_run) return;
-
-  unsigned long now = millis();
-  unsigned long count = app_count;
-
-  lv_label_set_text_fmt(home_count, "%lu", count);
-
-
-
-  if (last_interval_time == 0) {
-    last_interval_time = now;
-    last_interval_count = count;
+  if (pwm_run) {
+      lv_label_set_text_fmt(home_pwmfreq, "%dHz", pwm_freq);
   }
+  else {
+    lv_label_set_text_fmt(home_pwmfreq, "OFF  (%dHz)", pwm_freq);
+  }
+  
+  if (counter_run) {
+    unsigned long now = millis();
+    unsigned long count = app_count;
 
-  if (mode_hz) {
-    if (now > (last_interval_time+1000)) {
-      unsigned long counts_in_1sec = count - last_interval_count;
-      unsigned long elapsed_msec = now - last_interval_time;
-      float hz = 1000*(float)counts_in_1sec / (float)elapsed_msec;
-      LEAF_DEBUG("Hz refresh counts=%lu elapsed=%lu hz=%f",
-		 counts_in_1sec, elapsed_msec, hz);
-      if (hz > 1000) {
-	snprintf(buf, sizeof(buf), "%dHz", (int)hz);
-      }
-      else if (hz > 100) {
-	snprintf(buf, sizeof(buf), "%.1fHz", hz);
-      }
-      else {
-	snprintf(buf, sizeof(buf), "%.2fHz", hz);
-      }
-      lv_label_set_text(home_countfreq, buf);
+    lv_label_set_text_fmt(home_count, "%lu", count);
+
+    if (last_interval_time == 0) {
       last_interval_time = now;
       last_interval_count = count;
     }
-  }
-  else {
-    if (now > (last_interval_time+5000)) {
-      unsigned long counts_in_5sec = count - last_interval_count;
-      float elapsed_sec = (now - last_interval_time)/1000;
-      float ppm = 12.0 * (float)counts_in_5sec / elapsed_sec;
-      LEAF_DEBUG("ppm refresh counts=%lu elapsed=%.3f ppm=%f",
-		counts_in_5sec, elapsed_sec, ppm);
-      if (ppm > 1000) {
-	snprintf(buf, sizeof(buf), "%dppm", (int)ppm);
-      }
-      else if (ppm > 100) {
-	snprintf(buf, sizeof(buf), "%.1fppm", ppm);
-      }
-      else {
-	snprintf(buf, sizeof(buf), "%.2fppm", ppm);
-      }
 
-      lv_label_set_text(home_countfreq, buf);
-      last_interval_time=now;
-      last_interval_count=count;
+    if (mode_hz) {
+      if (now > (last_interval_time+1000)) {
+	unsigned long counts_in_1sec = count - last_interval_count;
+	unsigned long elapsed_msec = now - last_interval_time;
+	float hz = 1000*(float)counts_in_1sec / (float)elapsed_msec;
+	LEAF_DEBUG("Hz refresh counts=%lu elapsed=%lu hz=%f",
+		   counts_in_1sec, elapsed_msec, hz);
+	if (hz > 1000) {
+	  snprintf(buf, sizeof(buf), "%dHz", (int)hz);
+	}
+	else if (hz > 100) {
+	  snprintf(buf, sizeof(buf), "%.1fHz", hz);
+	}
+	else {
+	  snprintf(buf, sizeof(buf), "%.2fHz", hz);
+	}
+	lv_label_set_text(home_countfreq, buf);
+	last_interval_time = now;
+	last_interval_count = count;
+      }
+    }
+    else {
+      if (now > (last_interval_time+5000)) {
+	unsigned long counts_in_5sec = count - last_interval_count;
+	float elapsed_sec = (now - last_interval_time)/1000;
+	float ppm = 12.0 * (float)counts_in_5sec / elapsed_sec;
+	LEAF_DEBUG("ppm refresh counts=%lu elapsed=%.3f ppm=%f",
+		   counts_in_5sec, elapsed_sec, ppm);
+	if (ppm > 1000) {
+	  snprintf(buf, sizeof(buf), "%dppm", (int)ppm);
+	}
+	else if (ppm > 100) {
+	  snprintf(buf, sizeof(buf), "%.1fppm", ppm);
+	}
+	else {
+	  snprintf(buf, sizeof(buf), "%.2fppm", ppm);
+	}
+
+	lv_label_set_text(home_countfreq, buf);
+	last_interval_time=now;
+	last_interval_count=count;
+      }
     }
   }
 
+  if (!isnan(millivolts)) {
+    char buf[16];
+    snprintf(buf, sizeof(buf),"%dmV", (int)millivolts);
+    lv_label_set_text(home_millivolts, buf);
+  }
+  if (!isnan(milliamps)) {
+    snprintf(buf, sizeof(buf),"%dmA", (int)milliamps);
+    lv_label_set_text(home_milliamps, buf);
+  }
 }
 
 
-void FernvaleAppLeaf::button(int b)
+
+
+void FernvaleAppLeaf::button(enum fernvale_button b, bool is_press)
 {
-  LEAF_NOTICE("button %d press", b);
+  LEAF_NOTICE("button %s(%d) %s", fernvale_button_names[b], (int)b , PRESS(is_press));
   //update();
 
+  fernvale_last_button = b;
+  fernvale_last_button_is_press = is_press;
+
+  if (!is_press) return;
+
   switch (b) {
-  case 1:
+  case NONE:
+    break;
+  case BUT_1:
+  case BUT_A:
     app_count=0;
     last_interval_time=0;
     last_interval_count=0;
-    lv_label_set_text(home_count, "");
+    if (counter_run) {
+      lv_label_set_text(home_count, "");
+    }
+    else {
+      lv_label_set_text(home_count, "OFF");
+    }
     lv_label_set_text(home_countfreq, "");
     break;
-  case 2:
-    counter_run = !counter_run;
+  case BUT_2:
+  case BUT_B:
+    setValue("counter_run", ABILITY(!counter_run), VALUE_SET_DIRECT, VALUE_SAVE);
     if (counter_run) {
       attachInterrupt(counter_pin, counterISR, RISING);
       tone(pwm_pin, 3000);
@@ -373,23 +525,52 @@ void FernvaleAppLeaf::button(int b)
       detachInterrupt(counter_pin);
       noTone(pwm_pin);
       lv_label_set_text(home_btn2, "</CNT");
+      if (app_count==0) {
+	lv_label_set_text(home_count, "OFF");
+	lv_label_set_text(home_countfreq, "");
+      }
     }
     break;
-  case 3:
-    pwm_run = !pwm_run;
+  case BUT_3:
+  case BUT_C:
+    setValue("pwm_run", ABILITY(!pwm_run), VALUE_SET_DIRECT, VALUE_SAVE);
     if (pwm_run) {
       lv_label_set_text(home_btn3, "<PWM");
       tone(pwm_pin, pwm_freq);
+      lv_label_set_text_fmt(home_pwmfreq, "%dHz", pwm_freq);
     }
     else {
       lv_label_set_text(home_btn3, "</PWM");
       noTone(pwm_pin);
-    }
-    last_interval_time=0;
-    last_interval_count=0;
-    lv_label_set_text(home_countfreq, "");
+      lv_label_set_text_fmt(home_pwmfreq, "OFF  (%dHz)", pwm_freq);
+      }
     break;
+  case LEFT:
+    if (pwm_freq >0) {
+      int new_freq = pwm_freq - 500;
+      if (new_freq < 0) new_freq=0;
+      setValue("pwm_freq", String(new_freq), VALUE_SET_DIRECT, VALUE_SAVE);
+      if (pwm_freq < 0) pwm_freq=0;
+      LEAF_NOTICE("PWM freq now %d", pwm_freq);
+      if (pwm_run) {
+	tone(pwm_pin, pwm_freq);
+      }
+    }
+    break;
+  case RIGHT:
+    if (pwm_freq <150000) {
+      int new_freq = pwm_freq+=500;
+      setValue("pwm_freq", String(new_freq), VALUE_SET_DIRECT, VALUE_SAVE);
+      LEAF_NOTICE("PWM freq now %d", pwm_freq);
+        if (pwm_run) {
+	tone(pwm_pin, pwm_freq);
+      }
+    }
+    break;
+  default:
+    LEAF_NOTICE("  no handler");
   }
+
   refresh();
 }
 
@@ -404,38 +585,99 @@ bool FernvaleAppLeaf::mqtt_receive(String type, String name, String topic, Strin
   LEAF_ENTER(L_DEBUG);
   bool handled = false;
 
-  LEAF_NOTICE("RECV %s/%s => [%s <= %s]", type.c_str(), name.c_str(), topic.c_str(), payload.c_str());
+  LEAF_INFO("RECV %s/%s => [%s <= %s]", type.c_str(), name.c_str(), topic.c_str(), payload.c_str());
 
-  WHEN("_ip_connect", {
+  WHEN("_comms_state", {
+      if (home_comms != NULL) {
+	lv_label_set_text(home_comms, payload.c_str());
+      }
+  })
+  ELSEWHEN("_ip_connect", {
       //setPixel(pixel_wifi, color_reset);
       //message("pixel", "set/value", "20");
       //message("pixel", "set/hue", "4000");
       lv_label_set_text(home_ip, ipLeaf->ipAddressString().c_str());
   })
-  WHEN("_ip_disconnect", {
+  ELSEWHEN("_ip_disconnect", {
       //setPixel(pixel_wifi, color_off);
-      lv_label_set_text(home_ip, "Offline");
+      lv_label_set_text(home_ip, "");
   })
-  WHEN("_pubsub_connect", {
+  ELSEWHEN("_pubsub_connect", {
 	//setPixel(pixel_wifi, color_on);
   })
-  WHEN("_pubsub_disconnect", {
+  ELSEWHEN("_pubsub_disconnect", {
       //setPixel(pixel_wifi, color_reset);
   })
-  WHENFROM("btn1", "event/press", {
-      button(1);
+  ELSEWHENFROM("btn1", "event/press", {
+      button(BUT_1, true);
   })
-  WHENFROM("btn2", "event/press", {
-      button(2);
+  ELSEWHENFROM("btn1", "event/release", {
+      button(BUT_1, false);
+  })
+  ELSEWHENFROM("btn2", "event/press", {
+      button(BUT_2, true);
+  })
+  ELSEWHENFROM("btn2", "event/release", {
+      button(BUT_2, false);
   })
   ELSEWHENFROM("btn3", "event/press", {
-      button(3);
+      button(BUT_3, true);
+  })
+  ELSEWHENFROM("btn3", "event/press", {
+      button(BUT_3, false);
+  })
+  ELSEWHENPREFIXAND("event/button/", name=="joc", {
+      bool is_press = (payload=="press");
+      WHEN("up"    , button(UP    , is_press))
+      ELSEWHEN("down"  , button(DOWN  , is_press))
+      ELSEWHEN("left"  , button(LEFT  , is_press))
+      ELSEWHEN("right" , button(RIGHT , is_press))
+      ELSEWHEN("center", button(CENTER, is_press))
+      ELSEWHEN("but_a" , button(BUT_A , is_press))
+      ELSEWHEN("but_b" , button(BUT_B , is_press))
+      ELSEWHEN("but_c" , button(BUT_C , is_press))
+      else {
+        handled=false;
+      }
   })
   ELSEWHENFROM("battlvl", "status/battery", {
-      battery_millivolts=payload.toInt();
+      int new_value = payload.toInt();
+      if ((battery_millivolts<0) || (abs(battery_millivolts - new_value) >= battery_threshold)) {
+	battery_millivolts = new_value;
+	refresh();
+	mqtt_publish("status/battery", String(new_value));
+      }
+      else {
+	battery_millivolts = new_value;
+      }
+  })
+  ELSEWHENFROM("current", "status/millivolts", {
+      float new_value = payload.toFloat();
+      if (isnan(millivolts) || (fabs(millivolts - new_value) >= millivolts_threshold)) {
+	millivolts = new_value;
+	refresh();
+	mqtt_publish("status/millivolts", String(millivolts, 1));
+      }
+      else {
+	millivolts = new_value;
+      }
+  })
+  ELSEWHENFROM("current", "status/milliamps", {
+      float new_value = payload.toFloat();
+      if (isnan(milliamps) || (fabs(milliamps - new_value) >= milliamps_threshold)){
+	milliamps = new_value;
+	refresh();
+	mqtt_publish("status/milliamps", String(milliamps, 1));
+      }
+      else {
+	milliamps = new_value;
+      }
   })
   else {
     handled = AbstractAppLeaf::mqtt_receive(type, name, topic, payload);
+    if (!handled) {
+      LEAF_WARN("App did not handle %s/%s => %s <= %s", type.c_str(), name.c_str(), topic.c_str(), payload.c_str());
+    }
   }
   LEAF_BOOL_RETURN(handled);
 }
