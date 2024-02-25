@@ -1,2 +1,7 @@
 build
 fernvale*zip
+debug.cfg
+libraries/lvgl
+debug_custom.json
+esp32.svd
+latest.txt
